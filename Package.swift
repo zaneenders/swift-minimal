@@ -14,6 +14,9 @@ import PackageDescription
 // driver appends its own -g before our -Xfrontend flags, so this wins.
 let embedded: [String] = [
     "-enable-experimental-feature", "Embedded",
+    // Lets us declare `putchar` with `@_extern(c, ...)` and drive it directly,
+    // rather than routing console output through the stdlib's `print`.
+    "-enable-experimental-feature", "Extern",
     "-wmo",
     "-Xfrontend", "-disable-stack-protector",
     "-Xfrontend", "-gnone",

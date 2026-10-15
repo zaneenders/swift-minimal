@@ -1,9 +1,10 @@
 // Everything the Embedded Swift runtime needs from the platform on Linux.
 //
 // With `-static -nostdlib` there is no libc, so nothing is resolved for us.
-// The runtime references six symbols; `_start`, `putchar` and `memmove` are
-// real, and the rest are stubs because this program never allocates.
-// See ../../swift-baremetal for a real allocator in Swift.
+// The runtime references these symbols; `_start`, `putchar` and `sys_brk` are
+// real, `memset`/`memcpy`/`memmove` are the real thing too, and
+// `posix_memalign`/`free` now live in Swift (see Sources/SwiftMinimal/Heap.swift).
+// See ../../swift-baremetal for the same story on a bare-metal target.
 
     .section .text.boot
     .global _start
@@ -12,7 +13,7 @@ _start:
     mov     x8, #94               // exit_group(return value)
     svc     #0
 
-    // putchar(int) -> write(1, &c, 1). This is what `print` drives.
+    // putchar(int) -> write(1, &c, 1).
     .global putchar
 putchar:
     sub     sp, sp, #16
@@ -25,18 +26,16 @@ putchar:
     add     sp, sp, #16
     ret
 
+    // brk(2) for the Swift allocator: x0 is the requested break, and the
+    // resulting break is returned (unchanged if the kernel refused to grow).
+    .global sys_brk
+sys_brk:
+    mov     x8, #214              // brk
+    svc     #0
+    ret
+
     // The embedded runtime emits these in the same .text section as app_main,
-    // so --gc-sections cannot drop them. This program does not heap-allocate,
-    // so they are never actually executed.
-
-    .global posix_memalign        // int posix_memalign(void **, size_t, size_t)
-posix_memalign:
-    mov     w0, #12               // ENOMEM
-    ret
-
-    .global free
-free:
-    ret
+    // so --gc-sections cannot drop them.
 
     .global memset                // void *memset(void *, int, size_t)
 memset:
@@ -48,8 +47,20 @@ memset:
 2:  mov     x0, x3
     ret
 
-    // Unlike the three above, this one is reachable: at -Onone the embedded
-    // runtime lowers copyMemory to a memmove call instead of inlining it.
+    // Unlike memset, these two are reachable at -Onone: there the embedded
+    // runtime and the String machinery lower copyMemory and integer-to-ASCII
+    // to real calls instead of inlining them.
+    .global memcpy                // void *memcpy(void *, const void *, size_t)
+memcpy:
+    mov     x3, x0
+    cbz     x2, 2f
+1:  ldrb    w4, [x1], #1
+    strb    w4, [x0], #1
+    subs    x2, x2, #1
+    b.ne    1b
+2:  mov     x0, x3
+    ret
+
     .global memmove               // void *memmove(void *, const void *, size_t)
 memmove:
     mov     x3, x0
